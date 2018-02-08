@@ -1,0 +1,247 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%2345678901234567890123456789012345678901234567890123456789012345678901234567890
+%        1         2         3         4         5         6         7         8
+
+\documentclass[letterpaper, 10 pt, conference]{ieeeconf}  % Comment this line out if you need a4paper
+
+%\documentclass[a4paper, 10pt, conference]{ieeeconf}      % Use this line for a4 paper
+
+\IEEEoverridecommandlockouts                              % This command is only needed if 
+                                                          % you want to use the \thanks command
+
+\overrideIEEEmargins                                      % Needed to meet printer requirements.
+
+% See the \addtolength command later in the file to balance the column lengths
+% on the last page of the document
+
+% The following packages can be found on http:\\www.ctan.org
+%\usepackage{graphics} % for pdf, bitmapped graphics files
+%\usepackage{epsfig} % for postscript graphics files
+%\usepackage{mathptmx} % assumes new font selection scheme installed
+%\usepackage{times} % assumes new font selection scheme installed
+%\usepackage{amsmath} % assumes amsmath package installed
+%\usepackage{amssymb}  % assumes amsmath package installed
+
+\title{\LARGE \bf
+Trajectory planning using Dijkstra search algorithm and moving
+least square smooth interpolator* }
+
+
+\author{Renan S. Freitas$^{1}$, Eduardo E. M. Soares$^{2}$ and Ramon R.
+Costa$^{3}$% <-this
+% % stops a space
+\thanks{*This work was supported by Energia Sustent{\'a}vel do Brasil and the ANEEL R\&D program (contract
+COPPETEC/UFRJ JIRAU 09/15 6631-0003/2015)}% <-this % stops a space
+\thanks{$^{1}$Renan S. Freitas is with 13Robotics Robotica Ltda., and
+with the Department of Electrical Engineering, Federal University of Rio de
+Janeiro, Brazil {\tt\small renan.freitas@13robotics.com}}%
+\thanks{$^{2}$Eduardo E. M. Soares is with 13Robotics Robotica Ltda, Brazil}%
+\thanks{$^{2}$Ramon R. Costa is with Federal University of Rio de
+Janeiro, Brazil}}
+
+
+\begin{document}
+
+
+
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+There are several industrial applications for robotic manipulators that require
+precomputed trajectory generation and simulation, such as high precision
+welding, machining, painting and thermal spraying. On those applications,
+millimeter-spaced waypoints with precise end-effector orientations are generated
+on 3-D freeform surfaces, they are processed using inverse kinematics, and,
+traditionally, random sampling-based methods or local/global optimization
+algorithms compute the collision-free path in the joint-space. In this paper, we
+explore and propose solutions for the four main problems involved in trajectory
+planning: waypoints generation in cartesian coordinates on 3-D freeform surfaces
+using radial basis function (RBF); computation of inverse kinematics for
+non-zero tolerance on end-effector position/orientation; joint-space trajectory
+generation using Dijkstra's algorithm to minimize velocities; and the jerk
+reduction using the moving least square (MLS) smooth interpolator. The case
+study for the developed method is the EMMA project$^*$, a robotic system for
+\textit{in situ} high velocity oxy-fuel coating (HVOF) of hydraulic turbine
+blades. Simulations and experimental results with a real manipulator highlight
+the efficacy of the methodology and the impact of the solution for similar
+problems.
+\end{abstract}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{INTRODUCTION}\label{sec:intro}
+
+Robotic arms are used in several industrial applications, such as pick-and-place
+and assembly, and some high precision tasks as welding, surgical assistant, and
+thermal spraying (HVOF). The EMMA project \cite{c1}, case study and motivation
+for this paper, is a robotic system to perform HVOF on hydraulic turbine blades
+within the turbine environment. The HVOF technique reduces the mechanical wear,
+thus increasing blade's life cycle, and turbine efficiency. The process
+comprises a gun from which metallic particles are sprayed through a 900$^o$C
+degrees torch such that they are partially melted and then deposited on the
+surface of the blade by impact. For a regular coating layer, the task specifies
+$3\,mm$ spacing between trajectories, the spray gun must remain normal
+($90^\circ \pm 30^\circ$) to the surface, keep a $220\,mm \pm 20\,mm $ distance
+from it, and operate at a constant $40\,m/min$ speed.
+
+Since the HVOF task specifies millimeter-spaced positions and accurate
+end-effector orientations, the robot must be off-line programmed, that is,
+waypoints must be precomputed and simulated. The task space trajectory
+generation is widely studied, as presented in \cite{c2}, a survey of papers for
+techniques of freeform surfaces reconstruction. \cite{c3} and \cite{c4}
+proposed different strategies with polynomial parametrization for path planning
+on painting applications. However, the related works are not concerned
+about high precision or they are below the HVOF requirements. In
+section~\ref{sec:rbf} we present the proposed solution for high precision
+operational space trajectory generation for a robotic arm on freeform surfaces
+with complicated shape or topology in 3-D space, using the implicit representation of radial basis
+function (RBF) \cite{c5} for surface modelling, and the marching method
+algorithm \cite{c6}.
+
+Generally, task space waypoints (TS-waypoints) for robotic arms are sequences of
+10-sized tuples composed by 3-D coordinates $(x,y,z)$, normal vectors
+$(n_x,n_y,n_z)$ (orientation), velocities $(v_x,v_y,v_z)$ and delta times
+$(dt)$. TS-waypoints are translated into joint-space waypoints (JS-waypoints) by
+inverse kinematics (IK), then a trajectory planning technique (planner) is used
+to optimize the path. Random sampling-based methods, as the Rapidly-exploring
+random tree (RRT), are widely used planners to compute the collision-free path
+that connects two distinct JS-waypoints. \cite{c7} and \cite{c8} study the case
+where the end-effector path is not predetermined. We consider the problem of
+computing the JS-waypoints given a predetermined end-effector path
+(TS-waypoints), which depends on the manipulator's degree of freedom (DOF) and on the task
+constraints. In the specific case of the HVOF task, a 6-DOF manipulator is used,
+thus if the TS-waypoint is in the arm's workspace, there is at least one
+JS-waypoint solution. However, the orientation and position tolerance produce
+infinite IK solutions for each TS-waypoint. \cite{c9} solves the problem of
+finding configurations for a redundant mobile base robot, similar to the
+proposed solution presented in section~\ref{sec:dijkstra}, which generates random
+configurations and developes a greedy planner (Dijkstra).
+
+A dense sequence of TS-waypoints would produce substantial random configurations
+(JS-waypoints), thus extensive and probably computationally infeasible solutions
+for a greedy planner. On the other hand, sparse TS-waypoints may not guarantee
+the task precision requirement or it may generate acceleration jumps (jerky
+trajectories). In section~\ref{sec:mls}, we introduce the moving least square
+(MLS) smooth interpolator as a solution to the jerk minimization problem, taking
+advantage of the HVOF process tolerances (position and orientation). \cite{c10}
+presents a data-driven approach and uses B-spline interpolation-based method to
+minimize jerk. \cite{c11} considers a shortcutting heuristic to smooth jerky
+trajectories, using parabolic and straight-line curves. The MLS approach has
+several advantages over cubic splines and B-splines, as it is $C^\infty$
+(differentiable for all degrees of differentiation), it has intuitive and easy
+tunning parameters, and it is an extremely powerful technique for function and
+surface fitting \cite{c11}.
+
+% MUDAR
+The general software solution is a platform where the operator can test
+robot's trajectory planning, perform environment simulations with collision
+avoidance, manipulator's torques and velocities analysis, and test robot control
+techniques. We integrate the developed framework to the Open
+Robotics Automation Virtual Environment (OpenRave) \cite{c12} for a general
+solution of the EMMA software, and similar problems. In
+section~\ref{sec:results}, overall simulations and experimental results show
+that the developed framework is an efficient high precision path planning.
+% NUMBERS here
+
+\section{OPERATIONAL SPACE HIGH PRECISION TRAJECTORY GENERATION}\label{sec:rbf}
+The Operational Space Trajectory Generation (OSTG) is the first component of the
+developed framework. It is responsible for outputting the dense sequence of
+TS-waypoints on the turbine blade (3-D freeform surface), according the HVOF
+requirements. The workflow includes CAD sampling and normal vector estimation
+with the OpenRave Open Dynamics Engine (ODE), samples pre-filtering, implicit
+radial basis functions (RBF) for surface modelling \cite{c14} and surface
+partition, and the intersection curve computation through the marching method
+\cite{c15}.
+
+
+
+
+\section{JOINT-SPACE TRAJECTORY GENERATION}\label{sec:ikfast}
+The Joint-Space Trajectory Generation (JSTG) is a software component that
+receive the TS-waypoints and outputs the JS-waypoints for the Joint-Space
+Planner. Assuming that all TS-waypoints are in the manipulator range
+(workspace), a TS-waypoint has, at least, one inverse kinematic solution for
+a 6-DOF robotic arm. Position and orientation tolerances or redundant
+manipulators provide infinite IK solutions for each TS-waypoint, thus random
+sampling configurations may be computed for the planner.
+
+The HVOF process admits an orientation tolerance of $\pm 30^\circ$
+with respect to the normal vectors of the surface, and a position
+(distance) tolerance of $\pm 20\,mm$ with respect to the surface.
+
+\section{JOINT-SPACE PLANNER}\label{sec:dijkstra}
+
+\section{MOVING LEAST SQUARE SMOOTH INTERPOLATOR}\label{sec:mls}
+
+
+\section{SIMULATION AND RESULTS}\label{sec:results} 
+
+\section{CONCLUSION AND FUTURE WORK}
+
+\begin{thebibliography}{99}
+
+\bibitem{c1} Freitas, Renan S., et al. "State of the Art and Conceptual Design
+of Robotic Solutions for In Situ Hard Coating of Hydraulic Turbines." Journal of
+Control, Automation and Electrical Systems 28.1 (2017): 105-113.
+
+
+\bibitem{c2} Chen, Heping, et al. "Automated robot trajectory planning for spray
+painting of free-form surfaces in automotive manufacturing." Robotics and
+Automation, 2002. Proceedings. ICRA'02. IEEE International Conference on. Vol.
+1. IEEE, 2002.
+
+\bibitem{c3} Bo, Zhou, et al. "Fast and templatable path planning of spray
+painting robots for regular surfaces." Control Conference (CCC), 2015 34th Chinese. IEEE, 2015.
+
+
+\bibitem{c4} Tewolde, Girma S., and Weihua Sheng. "Robot path integration in
+manufacturing processes: Genetic algorithm versus ant colony optimization." IEEE
+Transactions on systems, man, and cybernetics-Part A: systems and humans 38.2
+(2008): 278-287.
+
+\bibitem{c5} Carr, Jonathan C., et al. "Reconstruction and representation of 3D
+objects with radial basis functions." Proceedings of the 28th annual conference
+on Computer graphics and interactive techniques. ACM, 2001.
+
+\bibitem{c6} Bajaj, Chandrajit L., et al. "Tracing surface intersections."
+Computer aided geometric design 5.4 (1988): 285-307.
+
+\bibitem{c7} Burget, Felix, Maren Bennewitz, and Wolfram Burgard. "BI 2 RRT*: An
+efficient sampling-based path planning framework for task-constrained mobile manipulation." Intelligent Robots and Systems (IROS), 2016 IEEE/RSJ International Conference on. IEEE, 2016.
+
+\bibitem{c8} Stilman, Mike. "Global manipulation planning in robot joint space
+with task constraints." IEEE Transactions on Robotics 26.3 (2010): 576-584.
+
+\bibitem{c9} Oriolo, Giuseppe, and Christian Mongillo. "Motion planning for
+mobile manipulators along given end-effector paths." Robotics and Automation, 2005. ICRA 2005. Proceedings of the 2005 IEEE International Conference on. IEEE, 2005.
+
+\bibitem{c10} Ude, Ales, Christopher G. Atkeson, and Marcia Riley. "Planning of
+joint trajectories for humanoid robots using B-spline wavelets." Robotics and Automation, 2000. Proceedings. ICRA'00. IEEE International Conference on. Vol. 3. IEEE, 2000.
+
+\bibitem{c11} Levin, David. "The approximation power of moving least-squares." Mathematics of Computation of the American Mathematical Society 67.224 (1998): 1517-1531.
+
+\bibitem{c12} Hauser, Kris, and Victor Ng-Thow-Hing. "Fast smoothing of
+manipulator trajectories using optimal bounded-acceleration shortcuts." Robotics and Automation (ICRA), 2010 IEEE International Conference on. IEEE, 2010.
+
+\bibitem{c13} Diankov, Rosen, and James Kuffner. "Openrave: A planning
+architecture for autonomous robotics." Robotics Institute, Pittsburgh, PA, Tech.
+Rep. CMU-RI-TR-08-34 79 (2008).
+
+\bibitem{c14} Carr, Jonathan C., et al. "Reconstruction and representation of 3D
+objects with radial basis functions." Proceedings of the 28th annual conference
+on Computer graphics and interactive techniques. ACM, 2001.
+
+\bibitem{c15} Bajaj, Chandrajit L., et al. "Tracing surface intersections."
+Computer aided geometric design 5.4 (1988): 285-307.
+
+\end{thebibliography}
+
+
+
+
+
+\end{document}
